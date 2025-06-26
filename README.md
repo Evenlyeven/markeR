@@ -10,7 +10,7 @@
 - Outputs:
   - Ranked marker tables (Excel)
   - Dot plots of top markers per cluster
-  - Feature plots per cluster  
+  - Feature plots per cluster (optional)  
 - Saves results in a timestamped output folder  
 - Command-line configurable  
 - Designed for Seurat objects normalized using **SCTransform**
@@ -38,8 +38,10 @@ Rscript markeR.R \
   --dot_topN_roc 5 \
   --dot_topN_wilcox 5 \
   --feat_topN_roc 20 \
-  --feat_topN_wilcox 200
+  --feat_topN_wilcox 200 \
+  --skip_featureplots
 ```
+📌 Note: --skip_featureplots is optional. If provided, feature plots will not be generated.
 
 ### 📝 Parameters
 
@@ -67,6 +69,9 @@ Rscript markeR.R \
 - `--feat_topN_wilcox`  
   Number of top markers per cluster to include in the Wilcoxon-based feature plots. Default is `200`.
 
+- `--skip_featureplots`  
+  Skip generating all feature plots if provided. Default is FALSE (all feature plots will be generated).
+
 ## 📂 Output
 
 All results are saved in a timestamped subdirectory (e.g., `markeR_20250603_154210`) under the specified `--output_dir`.
@@ -81,7 +86,7 @@ All results are saved in a timestamped subdirectory (e.g., `markeR_20250603_1542
   - `Dotplot_topX_markers_ROC.png` — Dot plot of top ROC markers per cluster
   - `Dotplot_topX_markers_Wilcox.png` — Dot plot of top Wilcoxon markers per cluster
 
-- **Feature plots (saved in folders):**
+- **Feature plots (optional, saved in folders):**
   - `FeaturePlot_topX_markers_ROC/` — Folder containing feature plots of top ROC markers per cluster
   - `FeaturePlot_topX_markers_Wilcox/` — Folder containing feature plots of top Wilcoxon markers per cluster
 
