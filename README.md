@@ -1,7 +1,10 @@
+<p align="right">
+  <img src="markeR_hex.png" width="180"/>
+</p>
+
 # markeR: A Pipeline for Marker Gene Analysis with Seurat
 
 **markeR** is an R-based pipeline for automated identification and visualization of marker genes from single-cell RNA-seq data using the Seurat framework. It supports both ROC and Wilcoxon tests, and generates Excel outputs and high-quality plots.
-
 
 ## 📦 Features
 
