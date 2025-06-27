@@ -1,4 +1,4 @@
-<p align="right">
+<p align="center">
   <img src="markeR_hex.png" width="180"/>
 </p>
 
