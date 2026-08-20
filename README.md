@@ -1,20 +1,30 @@
-# markeR: A Pipeline for Marker Gene Analysis with Seurat
+<p align="center">
+  <img src="markeR_hex.png" width="180"/>
+</p>
 
-**markeR** is an R-based pipeline for automated identification and visualization of marker genes from single-cell RNA-seq data using the Seurat framework. It supports both ROC and Wilcoxon tests, and generates Excel outputs and high-quality plots.
+# markeR: Automated Marker Gene Detection and Visualization for Seurat
 
+**markeR** is a command-line R pipeline for identifying and visualizing marker genes of every group in a clustered Seurat object. It runs `FindAllMarkers()` twice — once with the **ROC** test and once with the **Wilcoxon** rank-sum test — and turns each result into a ranked Excel table, a dot plot of the top markers per group, and per-group feature plot panels.
+
+Running both tests is deliberate: ROC ranks by classification power (`myAUC`, `power`) and answers "how cleanly does this gene separate the group?", while Wilcoxon supplies the significance testing (`p_val_adj`) most reviewers expect. Genes that top both lists are the confident markers.
+
+Any metadata column can serve as the grouping variable via `--group_by`, so the same script handles top-level clusters, subclusters, and finished cell-type annotations.
 
 ## 📦 Features
 
-- Accepts Seurat objects in `.rds` or `.RData` format  
-- Performs marker detection using **ROC** and **Wilcoxon** methods  
-- Outputs:
-  - Ranked marker tables (Excel)
-  - Dot plots of top markers per cluster
-  - Feature plots per cluster (optional)  
-- Saves results in a timestamped output folder  
-- Command-line configurable  
-- Designed for Seurat objects normalized using **SCTransform**
-
+	•	Accepts Seurat objects in `.rds` or `.RData` format
+	•	Runs marker detection with both **ROC** and **Wilcoxon** tests
+	•	Groups by any metadata column (`seurat_clusters`, subclusters, cell types)
+	•	Works with `SCT` or log-normalized `RNA` assays via `--assay_to_use`
+	•	Adds a `marker_score` column — `(pct.1 - pct.2) * abs(avg_log2FC)` — to every table
+	•	Ranks by `avg_log2FC` by default, or by `marker_score` on request
+	•	Groups ordered naturally (`gtools::mixedsort`), so `cluster_2` precedes `cluster_10`
+	•	Dot plots of the top N markers per group, via `scCustomize`
+	•	Per-group feature plots, chunked 20 genes at a time into 4-column panels
+	•	Group labels sanitized for filenames, so cell-type names with spaces or slashes are safe
+	•	Feature plots optionally skipped for a fast tabular-only run
+	•	Figure dimensions scale automatically with group and marker count
+	•	Timestamped output directory (prevents overwriting)
 
 ## 🚀 Quick Start
 
@@ -23,12 +33,27 @@
 Install required R packages:
 
 ```r
-install.packages(c("tidyverse", "optparse", "magrittr", "writexl"))
-remotes::install_github("samuel-marsh/scCustomize") # for scCustomize
+install.packages(c(
+  "tidyverse",
+  "Seurat",
+  "optparse",
+  "magrittr",
+  "writexl",
+  "gtools"
+))
+remotes::install_github("samuel-marsh/scCustomize")
 ```
 
-### 🖥️ Usage
+### 🖥️ Basic Usage
 
+**Default run** — markers of every `seurat_clusters` level from the `SCT` assay:
+```bash
+Rscript markeR.R \
+  --seurat_obj path/to/seurat_object.rds \
+  --output_dir results/
+```
+
+Full control over table and plot depth:
 ```bash
 Rscript markeR.R \
   --seurat_obj path/to/seurat_object.rds \
@@ -38,70 +63,108 @@ Rscript markeR.R \
   --dot_topN_roc 5 \
   --dot_topN_wilcox 5 \
   --feat_topN_roc 20 \
-  --feat_topN_wilcox 200 \
+  --feat_topN_wilcox 200
+```
+
+**Tables and dot plots only** — skip the (slow) feature plots:
+```bash
+Rscript markeR.R \
+  --seurat_obj path/to/seurat_object.rds \
+  --output_dir results/ \
   --skip_featureplots
 ```
-📌 Note: --skip_featureplots is optional. If provided, feature plots will not be generated.
+
+**Custom grouping** — subclusters or annotated cell types instead of clusters:
+```bash
+Rscript markeR.R \
+  --seurat_obj path/to/seurat_object.rds \
+  --output_dir results/ \
+  --group_by joint_sub.cluster
+```
+
+**Rank by marker score** instead of fold change:
+```bash
+Rscript markeR.R \
+  --seurat_obj path/to/seurat_object.rds \
+  --output_dir results/ \
+  --group_by annotation \
+  --rank_by_marker_score TRUE
+```
+
+**Log-normalized data** — use the `RNA` assay:
+```bash
+Rscript markeR.R \
+  --seurat_obj path/to/seurat_object.rds \
+  --output_dir results/ \
+  --assay_to_use RNA
+```
 
 ### 📝 Parameters
 
-- `--seurat_obj`  
-  **(Required)** Path to the Seurat object file (`.rds` or `.RData` format).
+**Required**
+| Parameter | Description |
+|-----------|-------------|
+| `--seurat_obj` | Path to a Seurat object file (`.rds`, `.RData`) |
 
-- `--output_dir`  
-  Directory where output files will be saved. Default is `./`.
+**Input / Grouping**
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `--output_dir` | `./` | Directory where the timestamped output folder is created |
+| `--group_by` | `seurat_clusters` | Metadata column used as the grouping variable for `FindAllMarkers()` and all plots |
+| `--assay_to_use` | `SCT` | Assay used for marker detection and plotting. Use `RNA` for log-normalized data |
+| `--reduction_to_use` | `umap` | Reduction used for the feature plots (e.g. `umap`, `tsne`) |
 
-- `--reduction_to_use`  
-  Name of the dimensionality reduction to use for feature plots (e.g., `umap`, `tsne`). Default is `umap`.
+**Ranking**
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `--rank_by_marker_score` | `FALSE` | If `TRUE`, rank tables and select top markers by `marker_score` — `(pct.1 - pct.2) * abs(avg_log2FC)` — instead of `avg_log2FC`. The column is written either way |
 
-- `--saveRData`  
-  Logical (`TRUE`/`FALSE`). If `TRUE`, saves intermediate marker results as an `.RData` file.
+**Dot Plots**
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `--dot_topN_roc` | `5` | Top markers per group shown in the ROC dot plot |
+| `--dot_topN_wilcox` | `5` | Top markers per group shown in the Wilcoxon dot plot |
 
-- `--dot_topN_roc`  
-  Number of top markers per cluster to show in the ROC-based dot plot. Default is `5`.
+**Feature Plots**
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `--feat_topN_roc` | `20` | Top markers per group plotted from the ROC results (pre-filtered to `power > 0.4`) |
+| `--feat_topN_wilcox` | `200` | Top markers per group plotted from the Wilcoxon results (pre-filtered to `p_val_adj < 0.05`) |
+| `--skip_featureplots` | `FALSE` | Flag (no value). If given, no feature plots are generated |
 
-- `--dot_topN_wilcox`  
-  Number of top markers per cluster to show in the Wilcoxon-based dot plot. Default is `5`.
+**Output Controls**
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `--saveRData` | `TRUE` | Save the raw `FindAllMarkers()` results as `Markers.RData` |
 
-- `--feat_topN_roc`  
-  Number of top markers per cluster to include in the ROC-based feature plots. Default is `20`.
+## 📂 Output Structure
 
-- `--feat_topN_wilcox`  
-  Number of top markers per cluster to include in the Wilcoxon-based feature plots. Default is `200`.
-
-- `--skip_featureplots`  
-  Skip generating all feature plots if provided. Default is FALSE (all feature plots will be generated).
-
-## 📂 Output
-
-All results are saved in a timestamped subdirectory (e.g., `markeR_20250603_154210`) under the specified `--output_dir`.
-
-### Main outputs include:
-
-- **Excel files:**
-  - `Markers_roc.xlsx` — Top markers ranked using ROC analysis
-  - `Markers_wilcox.xlsx` — Top markers ranked using Wilcoxon test
-
-- **Dot plots:**
-  - `Dotplot_topX_markers_ROC.png` — Dot plot of top ROC markers per cluster
-  - `Dotplot_topX_markers_Wilcox.png` — Dot plot of top Wilcoxon markers per cluster
-
-- **Feature plots (optional, saved in folders):**
-  - `FeaturePlot_topX_markers_ROC/` — Folder containing feature plots of top ROC markers per cluster
-  - `FeaturePlot_topX_markers_Wilcox/` — Folder containing feature plots of top Wilcoxon markers per cluster
-
-- **Optional data file:**
-  - `Markers.RData` — Saved RData file containing the `FindAllMarkers()` results (if `--saveRData TRUE`)
-
+Each run creates a timestamped directory: `markeR_20260429_154210/`
+<br>
+**Marker tables**
+	•	Markers_roc.xlsx — `gene`, `cluster`, `myAUC`, `avg_diff`, `power`, `avg_log2FC`, `pct.1`, `pct.2`, `marker_score`
+	•	Markers_wilcox.xlsx — `gene`, `cluster`, `avg_log2FC`, `p_val`, `p_val_adj`, `pct.1`, `pct.2`, `marker_score`
+  <br>
+**Dot plots**
+	•	Dotplot_top<N>_markers_ROC.png
+	•	Dotplot_top<N>_markers_Wilcox.png
+  <br>
+**Feature plots** (unless `--skip_featureplots`)
+	•	FeaturePlot_top<N>_markers_ROC/Cluster_<group>_top<k>-<k+19>_features.png
+	•	FeaturePlot_top<N>_markers_Wilcox/Cluster_<group>_top<k>-<k+19>_features.png
+  <br>
+**Optional**
+	•	Markers.RData — the unfiltered ROC and Wilcoxon result data frames
 
 ## 📌 Notes
 
-- The input Seurat object **must**:
-  - Contain an `SCT` assay
-  - Include cluster identity metadata named `seurat_clusters`
-
-- The script is compatible with `.rds` and `.RData` files. If multiple Seurat objects are found in an `.RData` file, the first one is selected automatically.
-
-- Dot and feature plots are generated using the `scCustomize` package, and will scale based on the number of clusters and selected marker count.
-
-- Each run creates a unique, timestamped output folder to prevent accidental overwrites.
+ - The Seurat object must contain the assay named by `--assay_to_use` and the metadata column named by `--group_by`; both are validated up front, and the error lists what is available.
+ - Marker detection runs `only.pos = TRUE` on the `data` slot with a fixed seed (`10086`), so results are reproducible.
+ - `marker_score` — `(pct.1 - pct.2) * abs(avg_log2FC)` — rewards genes that are both strongly and *exclusively* expressed in a group. It is always added as a column; `--rank_by_marker_score` only controls whether it drives the ordering and the top-N selection.
+ - Group levels are ordered with `gtools::mixedsort()`, so numeric cluster labels sort naturally in both tables and plots.
+ - Feature plots are split into chunks of 20 genes across 4 columns; a group with 200 Wilcoxon markers therefore yields 10 PNGs. This is the slowest stage by far — use `--skip_featureplots` when only tables are needed.
+ - Group labels are sanitized for filenames (non-alphanumeric runs collapsed to `_`), so cell-type names containing spaces, slashes, parentheses, or `&` are safe to use with `--group_by`.
+ - The ROC feature plots keep only markers with `power > 0.4`; the Wilcoxon ones keep `p_val_adj < 0.05`. A group with nothing passing its filter is simply skipped.
+ - If the ROC test returns no markers at all, the ROC dot plot is skipped with a warning and the run continues.
+ - If several Seurat objects are present in an `.RData` file, the first one is used.
+ - Each run creates a new timestamped output folder to prevent overwriting.

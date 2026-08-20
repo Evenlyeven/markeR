@@ -4,6 +4,7 @@ suppressMessages(suppressWarnings(library(optparse)))
 suppressMessages(suppressWarnings(library(magrittr)))
 suppressMessages(suppressWarnings(library(scCustomize)))
 suppressMessages(suppressWarnings(library(writexl)))
+suppressMessages(suppressWarnings(library(gtools)))
 
 ## ===== define a function of the analysis ===== ##
 markeR <- function(seurat_obj,
@@ -16,7 +17,8 @@ markeR <- function(seurat_obj,
                    feat_topN_roc,
                    skip_featureplots = FALSE,
                    rank_by_marker_score = FALSE,
-                   group_by = "seurat_clusters") {
+                   group_by = "seurat_clusters",
+                   assay_to_use = "SCT") {
   # User may input .rds or RData of the seurat_obj, we will read it in
   if (grepl("\\.rds$", seurat_obj)) {
     seurat_obj <- readRDS(seurat_obj)
@@ -47,14 +49,23 @@ markeR <- function(seurat_obj,
     stop("The input must be a Seurat object.")
   }
   
-  if (!"SCT" %in% Assays(seurat_obj)) {
-    stop("This script assumes that the Seurat object contains an 'SCT' assay.")
+  if (!assay_to_use %in% Assays(seurat_obj)) {
+    stop(
+      "assay_to_use='",
+      assay_to_use,
+      "' not found. Available assays: ",
+      paste(Assays(seurat_obj), collapse = ", ")
+    )
   }
   
   # Validate if the group_by metadata exists
   if (!group_by %in% colnames(seurat_obj@meta.data)) {
-    stop("group_by='", group_by, "' not found in seurat_obj@meta.data. Available columns:\n",
-         paste(colnames(seurat_obj@meta.data), collapse = ", "))
+    stop(
+      "group_by='",
+      group_by,
+      "' not found in seurat_obj@meta.data. Available columns:\n",
+      paste(colnames(seurat_obj@meta.data), collapse = ", ")
+    )
   }
   
   # We will make the group variable file name friendly wherever this is relevant
@@ -77,13 +88,10 @@ markeR <- function(seurat_obj,
     ifelse(nzchar(x), x, "NA")
   }
   
-  DefaultAssay(seurat_obj) <- "SCT"
+  DefaultAssay(seurat_obj) <- assay_to_use
   
   # we will change the order of the group_by factor levels in the seurat object, so that the order looks right in the plots and tables
-  seurat_obj[[group_by]] <- factor(
-    seurat_obj[[group_by, drop = TRUE]],
-    levels = gtools::mixedsort(unique(na.omit(seurat_obj[[group_by, drop = TRUE]])))
-  )
+  seurat_obj[[group_by]] <- factor(seurat_obj[[group_by, drop = TRUE]], levels = gtools::mixedsort(unique(na.omit(seurat_obj[[group_by, drop = TRUE]]))))
   
   # Wrap output in a timestamped folder, so repeated runs do not overwrite results unless desired
   timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
@@ -96,7 +104,7 @@ markeR <- function(seurat_obj,
     test.use = "roc",
     only.pos = TRUE,
     random.seed = 10086,
-    assay = "SCT",
+    assay = assay_to_use,
     slot = "data",
     group.by = group_by
   )
@@ -110,7 +118,7 @@ markeR <- function(seurat_obj,
     test.use = "wilcox",
     only.pos = TRUE,
     random.seed = 10086,
-    assay = "SCT",
+    assay = assay_to_use,
     slot = "data",
     group.by = group_by
   )
@@ -203,34 +211,38 @@ markeR <- function(seurat_obj,
       arrange(cluster, desc(avg_log2FC))
   }
   
-  pd <- scCustomize::DotPlot_scCustom(
-    seurat_obj,
-    features = unique(mar_s_top$gene),
-    dot.scale = 8,
-    x_lab_rotate = TRUE,
-    flip_axes = TRUE,
-    assay = "SCT",
-    group.by = group_by
-  ) +
-    scale_color_viridis_c(alpha = 0.8, direction = -1) +
-    theme(
-      strip.text = element_text(size = 8.5),
-      axis.text.x = element_text(size = 11),
-      legend.position = "bottom"
+  if (nrow(mar_s_top) == 0) {
+    warning("No ROC markers found for dot plot. Skipping ROC dot plot.")
+  } else {
+    pd <- scCustomize::DotPlot_scCustom(
+      seurat_obj,
+      features = unique(mar_s_top$gene),
+      dot.scale = 8,
+      x_lab_rotate = TRUE,
+      flip_axes = TRUE,
+      assay = assay_to_use,
+      group.by = group_by
     ) +
-    ggtitle(paste0("Top ", dot_topN_roc, " markers of each cluster (ROC)"))
-  
-  png(
-    filename = file.path(
-      output_dir,
-      paste0("Dotplot_top", dot_topN_roc, "_markers_ROC.png")
-    ),
-    width = max(40 * num_clusters + 100, 1100),
-    height = 25 * dot_topN_roc * num_clusters + 100,
-    res = 110
-  )
-  print(pd)
-  dev.off()
+      scale_color_viridis_c(alpha = 0.8, direction = -1) +
+      theme(
+        strip.text = element_text(size = 8.5),
+        axis.text.x = element_text(size = 11),
+        legend.position = "bottom"
+      ) +
+      ggtitle(paste0("Top ", dot_topN_roc, " markers of each cluster (ROC)"))
+    
+    png(
+      filename = file.path(
+        output_dir,
+        paste0("Dotplot_top", dot_topN_roc, "_markers_ROC.png")
+      ),
+      width = max(40 * num_clusters + 100, 1100),
+      height = 25 * dot_topN_roc * num_clusters + 100,
+      res = 110
+    )
+    print(pd)
+    dev.off()
+  }
   
   ## wilcox
   if (rank_by_marker_score) {
@@ -257,7 +269,7 @@ markeR <- function(seurat_obj,
     x_lab_rotate = TRUE,
     dot.scale = 8,
     flip_axes = TRUE,
-    assay = "SCT",
+    assay = assay_to_use,
     group.by = group_by
   ) +
     scale_color_viridis_c(alpha = 0.8, direction = -1) +
@@ -306,7 +318,6 @@ markeR <- function(seurat_obj,
     }
     
     for (i in unique(marker_top$cluster)) {
-      
       genes <- marker_top %>%
         filter(cluster == i) %>%
         pull(gene) %>%
@@ -317,7 +328,6 @@ markeR <- function(seurat_obj,
       
       # iterate over chunks of 20 genes: 1, 21, 41, ...
       for (k in seq(1, length(genes), by = 20)) {
-        
         end_index <- min(k + 19, length(genes))
         genes_chunk <- genes[k:end_index]
         
@@ -338,7 +348,15 @@ markeR <- function(seurat_obj,
         png(
           filename = file.path(
             folder_name,
-            paste0("Cluster_", i_tag, "_top", k, "-", end_index, "_features.png")
+            paste0(
+              "Cluster_",
+              i_tag,
+              "_top",
+              k,
+              "-",
+              end_index,
+              "_features.png"
+            )
           ),
           width = 3100,
           height = img_height
@@ -373,7 +391,6 @@ markeR <- function(seurat_obj,
     
     # i is the group label (cluster / cell type / whatever your FindAllMarkers used)
     for (i in unique(marker_top$cluster)) {
-      
       genes <- marker_top %>%
         filter(cluster == i) %>%
         pull(gene) %>%
@@ -384,7 +401,6 @@ markeR <- function(seurat_obj,
       
       # iterate over chunks of 20 genes: 1, 21, 41, ...
       for (k in seq(1, length(genes), by = 20)) {
-        
         end_index <- min(k + 19, length(genes))
         genes_chunk <- genes[k:end_index]
         
@@ -405,7 +421,15 @@ markeR <- function(seurat_obj,
         png(
           filename = file.path(
             folder_name,
-            paste0("Cluster_", i_tag, "_top", k, "-", end_index, "_features.png")
+            paste0(
+              "Cluster_",
+              i_tag,
+              "_top",
+              k,
+              "-",
+              end_index,
+              "_features.png"
+            )
           ),
           width = 3100,
           height = img_height
@@ -420,9 +444,9 @@ markeR <- function(seurat_obj,
 ## ===== define options for the script ===== ##
 description_text <- "This script performs marker gene analysis on a Seurat object using both ROC and Wilcoxon rank-sum tests with default parameters. It outputs ranked marker tables (ranked either by default avg_log2FC or optional marker score: marker_score = (pct.1 - pct.2) * abs(avg_log2FC) ) and generates dot plots and feature plots of the top markers for each cluster.
 
-This script is designed for Seurat objects that have been normalized using the SCTransform workflow and uses the SCT assay for downstream analysis.
+This script is designed for Seurat objects normalized using either SCTransform or log-normalization workflows. Users can specify the assay to use (e.g., SCT - default or RNA) for downstream analysis.
 
-Usage: Rscript markeR.R --seurat_obj <seurat_object> --output_dir <output_directory> --reduction_to_use <reduction> --saveRData <TRUE/FALSE> --dot_topN_roc <number> --dot_topN_wilcox <number> --feat_topN_wilcox <number> --feat_topN_roc <number> --rank_by_marker_score <TRUE/FALSE>"
+Usage: Rscript markeR.R --seurat_obj <seurat_object> --output_dir <output_directory> --reduction_to_use <reduction> --saveRData <TRUE/FALSE> --dot_topN_roc <number> --dot_topN_wilcox <number> --feat_topN_wilcox <number> --feat_topN_roc <number> --rank_by_marker_score <TRUE/FALSE> --assay_to_use <SCT/RNA>"
 
 option_list <- list(
   make_option(
@@ -480,7 +504,7 @@ option_list <- list(
     help = "Skip generating all feature plots (ROC and Wilcox)"
   ),
   make_option(
-    c("--rank_by_marker_score"),                                  
+    c("--rank_by_marker_score"),
     type = "logical",
     default = FALSE,
     help = "If TRUE, rank markers by marker_score instead of default: avg_log2FC"
@@ -490,6 +514,12 @@ option_list <- list(
     type = "character",
     default = "seurat_clusters",
     help = "Metadata column to group by (FindAllMarkers group.by). Default: seurat_clusters"
+  ),
+  make_option(
+    c("--assay_to_use"),
+    type = "character",
+    default = "SCT",
+    help = "Assay to use for marker analysis and plotting. Default: SCT. Use RNA for log-normalized data."
   )
 )
 
@@ -514,5 +544,6 @@ markeR(
   feat_topN_roc = opt$feat_topN_roc,
   skip_featureplots = opt$skip_featureplots,
   rank_by_marker_score = opt$rank_by_marker_score,
-  group_by = opt$group_by
+  group_by = opt$group_by,
+  assay_to_use = opt$assay_to_use
 )
